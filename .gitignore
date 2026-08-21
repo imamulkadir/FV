@@ -1,0 +1,23 @@
+# Compiled output
+dist/
+build/
+bin/
+obj/
+*.exe
+*.pdb
+
+# Python build-helper cache
+__pycache__/
+*.py[cod]
+
+# IDE and user-specific files
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Windows and macOS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
