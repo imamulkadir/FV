@@ -13,13 +13,13 @@ compiled application at approximately 100 KB.
 
 ## Interface
 
-### Main window
-
-![FV main window](ui/interface.png)
-
 ### Unlock window
 
 ![FV unlock window](ui/login.png)
+
+### Main window
+
+![FV main window](ui/interface.png)
 
 ## Features
 
