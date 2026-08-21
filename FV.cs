@@ -397,12 +397,21 @@ namespace FVApp
         }
     }
 
-    sealed class MainForm : Form
+    sealed class MainForm : Form, IMessageFilter
     {
         readonly AppConfig config; readonly string sid; readonly ListBox list; readonly Button unlock; readonly Label count; readonly Label empty;
         readonly Image rowLock;
+        readonly List<Control> managementControls = new List<Control>();
+        Panel authPanel; TextBox authPassword; TextBox authConfirm; Label authError; bool creatingPassword; string pendingUnlock;
+        readonly Timer idleTimer;
+        DateTime lastActivity;
+        bool authenticated;
 
-        internal MainForm(AppConfig config)
+        internal MainForm(AppConfig config) : this(config, false, null, true) { }
+
+        internal MainForm(AppConfig config, bool setup, string requestedFolder) : this(config, setup, requestedFolder, false) { }
+
+        MainForm(AppConfig config, bool setup, string requestedFolder, bool skipAuthentication)
         {
             this.config = config; sid = Acl.Sid; Text = "FV"; Icon = Program.AppIcon; Font = SystemFonts.MessageBoxFont; BackColor = Ui.Canvas;
             StartPosition = FormStartPosition.Manual; MinimumSize = new Size(620, 400); ClientSize = new Size(700, 425);
@@ -432,6 +441,136 @@ namespace FVApp
             about.Click += delegate { list.ClearSelected(); using (AboutDialog d = new AboutDialog()) d.ShowDialog(this); }; Controls.Add(about);
             MouseDown += delegate { list.ClearSelected(); };
             RefreshList();
+            foreach (Control control in Controls) managementControls.Add(control);
+            authenticated = skipAuthentication;
+            if (!skipAuthentication) ShowAuthentication(setup, requestedFolder);
+            lastActivity = DateTime.UtcNow;
+            idleTimer = new Timer { Interval = 1000 };
+            idleTimer.Tick += CheckIdle;
+            idleTimer.Start();
+            Application.AddMessageFilter(this);
+            FormClosed += delegate
+            {
+                idleTimer.Stop();
+                idleTimer.Dispose();
+                Application.RemoveMessageFilter(this);
+            };
+        }
+
+        void ShowAuthentication(bool setup, string requestedFolder)
+        {
+            creatingPassword = setup;
+            pendingUnlock = requestedFolder;
+            authConfirm = null;
+            foreach (Control control in managementControls) control.Visible = false;
+            authPanel = new Panel { Dock = DockStyle.Fill, BackColor = Ui.Canvas };
+            Image brandImage = Program.AppIcon.ToBitmap();
+            PictureBox brand = new PictureBox { Image = brandImage, SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(328, 52), Size = new Size(44, 44) };
+            authPanel.Controls.Add(brand);
+            authPanel.Disposed += delegate { brandImage.Dispose(); };
+            Label title = new Label { Text = "Folder Vault", Font = new Font(Font.FontFamily, 16, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Location = new Point(110, 101), Size = new Size(480, 32) };
+            authPanel.Controls.Add(title);
+            int top = setup ? 148 : 154;
+            string caption = setup ? "New password:" : "Master password:";
+            authPanel.Controls.Add(new Label { Text = caption, AutoSize = true, Location = new Point(145, top + 4) });
+            authPassword = new TextBox { Location = new Point(270, top), Size = new Size(270, 24), UseSystemPasswordChar = true };
+            authPanel.Controls.Add(authPassword);
+            top += 36;
+            if (setup)
+            {
+                authPanel.Controls.Add(new Label { Text = "Confirm password:", AutoSize = true, Location = new Point(145, top + 4) });
+                authConfirm = new TextBox { Location = new Point(270, top), Size = new Size(270, 24), UseSystemPasswordChar = true };
+                authPanel.Controls.Add(authConfirm);
+                top += 36;
+            }
+            CheckBox show = new CheckBox { Text = setup ? "Show passwords" : "Show password", AutoSize = true, Location = new Point(270, top + 2) };
+            show.CheckedChanged += delegate
+            {
+                bool hidden = !show.Checked;
+                authPassword.UseSystemPasswordChar = hidden;
+                if (authConfirm != null) authConfirm.UseSystemPasswordChar = hidden;
+            };
+            authPanel.Controls.Add(show);
+            string submitText = setup ? "Create password" : "Unlock";
+            int submitWidth = setup ? 110 : 82;
+            Button submit = new Button { Text = submitText, Size = new Size(submitWidth, 29), Location = new Point(540 - submitWidth, top + 43) };
+            Ui.StyleButton(submit, true);
+            submit.Click += Authenticate;
+            authPanel.Controls.Add(submit);
+            authError = new Label { ForeColor = Color.FromArgb(180, 35, 35), TextAlign = ContentAlignment.MiddleCenter, Location = new Point(110, top + 80), Size = new Size(480, 35) };
+            authPanel.Controls.Add(authError);
+            Controls.Add(authPanel);
+            authPanel.BringToFront();
+            AcceptButton = submit;
+            if (Visible) BeginInvoke((MethodInvoker)delegate { authPassword.Focus(); });
+            else Shown += delegate { authPassword.Focus(); };
+        }
+
+        void Authenticate(object sender, EventArgs e)
+        {
+            authError.Text = "";
+            try
+            {
+                if (String.IsNullOrEmpty(authPassword.Text))
+                    throw new ArgumentException(creatingPassword ? "Enter a new password." : "Enter your master password.");
+                if (creatingPassword)
+                {
+                    if (authPassword.Text.Length < 8) throw new ArgumentException("Use at least 8 characters.");
+                    if (authConfirm == null || authPassword.Text != authConfirm.Text) throw new ArgumentException("Passwords do not match.");
+                    Passwords.Set(config, authPassword.Text);
+                }
+                else Passwords.Verify(config, authPassword.Text);
+            }
+            catch (Exception x)
+            {
+                authPassword.SelectAll();
+                authPassword.Focus();
+                authError.Text = x.Message;
+                return;
+            }
+            AcceptButton = null;
+            Controls.Remove(authPanel);
+            authPanel.Dispose();
+            authPanel = null;
+            foreach (Control control in managementControls) control.Visible = true;
+            RefreshList();
+            authenticated = true;
+            lastActivity = DateTime.UtcNow;
+            list.Focus();
+            if (!String.IsNullOrEmpty(pendingUnlock))
+            {
+                string target = pendingUnlock;
+                pendingUnlock = null;
+                BeginInvoke((MethodInvoker)delegate { UnlockRequested(target); });
+            }
+        }
+
+        public bool PreFilterMessage(ref Message message)
+        {
+            bool keyboard = message.Msg >= 0x0100 && message.Msg <= 0x0109;
+            bool mouse = message.Msg >= 0x0200 && message.Msg <= 0x020E;
+            if (authenticated && (keyboard || mouse)) lastActivity = DateTime.UtcNow;
+            return false;
+        }
+
+        void CheckIdle(object sender, EventArgs e)
+        {
+            if (authenticated && Enabled && DateTime.UtcNow.Subtract(lastActivity).TotalSeconds >= 30)
+                LockAfterIdle();
+        }
+
+        void LockAfterIdle()
+        {
+            if (!authenticated || authPanel != null) return;
+            authenticated = false;
+            list.ClearSelected();
+            ShowAuthentication(false, null);
+        }
+
+        internal void TriggerIdleLockForTest()
+        {
+            lastActivity = DateTime.UtcNow.AddSeconds(-31);
+            CheckIdle(this, EventArgs.Empty);
         }
 
         void CenterOnActiveScreen(object sender, EventArgs e)
@@ -540,11 +679,29 @@ namespace FVApp
 
         static void SmokeTest()
         {
-            using (PasswordDialog testDialog = new PasswordDialog(PasswordMode.Login))
+            using (MainForm authForm = new MainForm(new AppConfig(), false, null))
             {
-                testDialog.Show();
+                authForm.Show();
                 Application.DoEvents();
-                testDialog.Close();
+                bool authVisible = false, folderListHidden = false, brandTitle = false, brandIcon = false;
+                foreach (Control control in authForm.Controls)
+                {
+                    Panel panel = control as Panel;
+                    if (panel != null && panel.Visible)
+                    {
+                        authVisible = true;
+                        foreach (Control child in panel.Controls)
+                        {
+                            if (child is Label && child.Text == "Folder Vault") brandTitle = true;
+                            PictureBox picture = child as PictureBox;
+                            if (picture != null && picture.Image != null) brandIcon = true;
+                        }
+                    }
+                    if (control is ListBox && !control.Visible) folderListHidden = true;
+                }
+                if (!authVisible || !folderListHidden || !brandTitle || !brandIcon)
+                    throw new InvalidOperationException("FV did not open in its unified authentication state.");
+                authForm.Close();
             }
 
             using (MainForm testForm = new MainForm(new AppConfig()))
@@ -556,6 +713,12 @@ namespace FVApp
                 int expectedTop = area.Top + (area.Height - testForm.Height) / 2;
                 if (Math.Abs(testForm.Left - expectedLeft) > 2 || Math.Abs(testForm.Top - expectedTop) > 2)
                     throw new InvalidOperationException("FV did not open in the center of the active screen.");
+                testForm.TriggerIdleLockForTest();
+                Application.DoEvents();
+                bool relocked = false;
+                foreach (Control control in testForm.Controls)
+                    if (control is Panel && control.Visible) relocked = true;
+                if (!relocked) throw new InvalidOperationException("FV did not relock after inactivity.");
                 testForm.Close();
             }
 
@@ -619,20 +782,8 @@ namespace FVApp
             AppConfig config;
             try { config = Store.Load(); } catch (Exception x) { MessageBox.Show(x.Message, "FV configuration error", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             bool setup = !Passwords.Current(config);
-            if (setup && config.Auth != null) MessageBox.Show("FV now uses the built-in Windows runtime to reduce its size. Create a new master password once. Existing locked-folder recovery records are preserved.", "Master password update required", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            while (true)
-            {
-                using (PasswordDialog d = new PasswordDialog(setup ? PasswordMode.Create : PasswordMode.Login))
-                {
-                    if (d.ShowDialog() != DialogResult.OK) return;
-                    try { if (setup) Passwords.Set(config, d.PasswordValue); else Passwords.Verify(config, d.PasswordValue); break; }
-                    catch (Exception x) { MessageBox.Show(x.Message, "FV", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-                }
-            }
             string request = null; for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--unlock-folder") { request = args[i + 1]; break; }
-            MainForm form = new MainForm(config);
-            if (!String.IsNullOrEmpty(request)) { string target = request; form.Shown += delegate { form.UnlockRequested(target); }; }
-            Application.Run(form);
+            Application.Run(new MainForm(config, setup, request));
         }
     }
 }

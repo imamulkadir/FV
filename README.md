@@ -26,6 +26,7 @@ compiled application at approximately 100 KB.
 - Direct Windows ACL locking and restoration with no terminal window.
 - Explorer **Unlock with FV** context-menu command.
 - Changeable master password with password visibility controls.
+- Automatic interface relock after 30 seconds without activity.
 - Lightweight native Windows interface.
 - Files are never moved, renamed, deleted, hidden, or encrypted.
 
