@@ -2,7 +2,7 @@
 
 Lightweight folder access control for Windows.
 
-- **Version:** 2.4.0
+- **Version:** See [version.txt](version.txt)
 - **Author:** Imamul Kadir
 - **Company:** PentaPet
 - **Website:** [imamulkadir.github.io](https://imamulkadir.github.io/)
@@ -50,6 +50,20 @@ dist\FV.exe
 ```
 
 The build uses `FV.cs`, `fv.ico`, and the SVG files in `assets`.
+
+## Versioning
+
+Update the single value in version.txt using major.minor.patch format. For
+example:
+
+    2.5.0
+
+Then rebuild:
+
+    python .\build_exe.py
+
+The build validates the value and applies it to the About window and Windows
+executable version properties automatically.
 
 ## Compatibility
 

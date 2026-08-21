@@ -21,8 +21,6 @@ using System.Reflection;
 [assembly: AssemblyCompany("PentaPet")]
 [assembly: AssemblyProduct("FV")]
 [assembly: AssemblyCopyright("Copyright © 2026 Imamul Kadir. All rights reserved.")]
-[assembly: AssemblyVersion("2.4.0.0")]
-[assembly: AssemblyFileVersion("2.4.0.0")]
 
 namespace FVApp
 {
@@ -388,8 +386,10 @@ namespace FVApp
         {
             Text = "About FV"; Icon = Program.AppIcon; Font = SystemFonts.MessageBoxFont; FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(390, 220);
+            Version appVersion = Assembly.GetExecutingAssembly().GetName().Version;
+            string versionText = String.Format(CultureInfo.InvariantCulture, "{0}.{1}.{2}", appVersion.Major, appVersion.Minor, appVersion.Build);
             Controls.Add(new Label { Text = "FV", Font = new Font(Font.FontFamily, 15, FontStyle.Bold), AutoSize = true, Location = new Point(20, 20) });
-            Controls.Add(new Label { Text = "Version 2.4.0\r\n\r\nAuthor: Imamul Kadir\r\nCompany: PentaPet\r\n\r\nFolder access control for Windows", AutoSize = true, Location = new Point(20, 55) });
+            Controls.Add(new Label { Text = "Version " + versionText + "\r\n\r\nAuthor: Imamul Kadir\r\nCompany: PentaPet\r\n\r\nFolder access control for Windows", AutoSize = true, Location = new Point(20, 55) });
             LinkLabel link = new LinkLabel { Text = "https://imamulkadir.github.io/", AutoSize = true, Location = new Point(20, 155) };
             link.LinkClicked += delegate { System.Diagnostics.Process.Start(link.Text); }; Controls.Add(link);
             Button ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Size = new Size(82, 27), Location = new Point(290, 178) };
